@@ -6,7 +6,7 @@ class LineEquation(object):
         eq.x2 = None
         eq.y2 = None
 
-        eq.line = None
+        eq.line = [0, 0, 0, 0]
 
         eq.slope = 0.0
         eq.p = 0.0

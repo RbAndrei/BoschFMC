@@ -75,8 +75,8 @@ class ImageProcessing(object):
                     if x2 > center and x2 - center < minright[0]:
                         minright = [x1, y1, x2, y2]
                     if x1 < center and center - x1 < minleft[0]:
-                            minleft = [x1, y1, x2, y2]
+                        minleft = [x1, y1, x2, y2]
                     if x2 < center and center - x2 < minleft[0]:
-                            minleft = [x1, y1, x2, y2]
+                        minleft = [x1, y1, x2, y2]
 
         return minleft, minright

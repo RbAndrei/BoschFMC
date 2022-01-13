@@ -4,25 +4,72 @@ import Working.Libraries.CameraDetection.imageprocessing as imgP
 import math
 
 import cv2 as cv
+import numpy as np
+
+prev_left = None
+prev_right = None
 
 
-def drawLane(line1, line2):
+def average(image, lines):
+    global prev_left, prev_right
 
-    cv.line(image,
-            (line1[0], line1[1]),
-            (line1[2], line1[3]),
-            (0, 255, 0),
-            3)
+    left = []
+    right = []
+    for line in lines:
+        # print(line)
+        x1, y1, x2, y2 = line.reshape(4)
 
-    cv.line(image,
-            (line2[0], line2[1]),
-            (line2[2], line2[3]),
-            (0, 255, 0),
-            3)
+        parameters = np.polyfit((x1, x2), (y1, y2), 1)
+        slope = parameters[0]
+        y_int = parameters[1]
+        if slope < 0:
+            left.append((slope, y_int))
+        else:
+            right.append((slope, y_int))
+
+    right_avg = np.average(right, axis=0)
+    left_avg = np.average(left, axis=0)
+
+    try:
+        left_line = make_points(image, left_avg)
+    except:
+        left_line = make_points(image, prev_left)
+        left_avg = prev_left
+
+    try:
+        right_line = make_points(image, right_avg)
+    except:
+        right_line = make_points(image, prev_right)
+        right_avg = prev_right
+
+    prev_left = left_avg
+    prev_right = right_avg
+
+    return np.array([left_line, right_line])
+
+
+def make_points(image, average):
+    slope, y_int = average
+
+    y1 = int(image.shape[0] / 1.2)
+    y2 = int(image.shape[0] / 1.4)
+    x1 = int((y1 - y_int) // slope)
+    x2 = int((y2 - y_int) // slope)
+
+    return np.array([x1, y1, x2, y2])
+
+
+def display_lines(image, lines):
+    lines_image = np.zeros_like(image)
+    if lines is not None:
+        for line in lines:
+            x1, y1, x2, y2 = line
+            cv.line(lines_image, (x1, y1), (x2, y2), (255, 0, 0), 10)
+    return lines_image
 
 
 # Sets camera object to receive input from video file
-camera = cv.VideoCapture("Videos/road.mkv")
+camera = cv.VideoCapture("../../Working/Camera/Videos/road.mkv")
 
 prevcoords = [0, 0]
 
@@ -42,11 +89,6 @@ while True:
     width = image.shape[1]
 
     # Coordinates for the trapeze-shaped mask
-    mask_coords = [(width / 4.3, height / 1.2),
-                   (width / 3, height / 1.4),
-                   (width / 1.5, height / 1.4),
-                   (width / 1.3, height / 1.2)]
-
     mask_coords = [(width / 2.58, height / 1.2),
                    (width / 2.08, height / 1.4),
                    (width / 1.7, height / 1.4),
@@ -67,12 +109,21 @@ while True:
 
     masked_image = imageP.drawmask(mask_coords)
 
-    # Minimum line height for a line to be taken into consideration as a lane delimiter line
-    min_line_height = (height / 1.2 - height / 1.4) / 2
+    copy = np.copy(image)
 
-    # minleft and minright are lists of 4 elements
-    # containing the x and y coordinates of each of the lines' ends: x1, y1, x2, y2
-    minleft, minright = imageP.lanedetection(centerL[0], min_line_height)
+    lines = cv.HoughLinesP(masked_image, 2, np.pi / 180, 100, np.array([]), minLineLength=60, maxLineGap=5)
+
+    if lines is None:
+        lines = np.array([])
+
+    averaged_lines = average(copy, lines)
+    black_lines = display_lines(copy, averaged_lines)
+    lanes = cv.addWeighted(copy, 0.8, black_lines, 1, 1)
+
+    cv.circle(image, (centerL[0], centerL[1]), 20, (0, 0, 0), 1)
+
+    minleft = averaged_lines[0]
+    minright = averaged_lines[1]
 
     equation1.calcequation(minleft)
     equation2.calcequation(minright)
@@ -85,17 +136,17 @@ while True:
     prevcoords[0] = intersection_x
     prevcoords[1] = intersection_y
 
-    print(prevcoords)
-    print(intersection_x, intersection_y)
+    # print(prevcoords)
+    # print(intersection_x, intersection_y)
 
-    if not (math.isnan(intersection_x) and not math.isnan(intersection_y)):
+    if not (math.isnan(intersection_x) or math.isnan(intersection_y)):
 
-        cv.circle(image,
+        cv.circle(lanes,
                   (int(intersection_x), int(intersection_y)),
                   10,
                   (14, 14, 201),
                   -1)
-        cv.line(image,
+        cv.line(lanes,
                 (centerL[0], centerL[1]),
                 (int(intersection_x), int(intersection_y)),
                 (14, 14, 201),
@@ -113,9 +164,9 @@ while True:
 
         # angle = 180 - angle
 
-        print("(", line1, line2, angle, ")")
+        # print("(", line1, line2, angle, ")")
 
-        cv.putText(image,
+        cv.putText(lanes,
                    str(angle),
                    (centerL[0], centerL[1] + 32),
                    cv.FONT_HERSHEY_PLAIN,
@@ -126,17 +177,15 @@ while True:
     minleft = equation1.line
     minright = equation2.line
 
-    drawLane(minleft, minright)
-
-    cv.line(image,
+    cv.line(lanes,
             (100, centerL[1]),
             (int(width - 100), centerL[1]),
             (0, 0, 0),
             1)
 
-    cv.circle(image, (centerL[0], centerL[1]), 20, (0, 0, 0), 1)
+    cv.circle(lanes, (centerL[0], centerL[1]), 20, (0, 0, 0), 1)
 
-    cv.imshow('Lines', image)
+    cv.imshow('Lines', lanes)
 
     if cv.waitKey(1) & 0xff == ord('q'):
         break
